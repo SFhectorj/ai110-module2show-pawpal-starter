@@ -4,6 +4,11 @@
 
 **a. Initial design**
 
+Three core actions:
+The first is the ability to enter owner and pet information. 
+Second, the ability to add and edit care tasks.
+Third, generate and view a daily plan.
+
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
