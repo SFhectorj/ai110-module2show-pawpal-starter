@@ -11,6 +11,16 @@ Third, generate and view a daily plan.
 
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
+    My first design has five classes:
+
+        - Owner is the person using the app. It stores their name, how many minutes they have each day, and their preferences. It also holds their list of pets.
+        - Pet is the animal. It stores the pet's name, species, age, and any special needs. It also holds that pet's list of tasks.
+        - Task is one care activity, like a walk or a feeding. It stores a title, a category, how long it takes, how important it is, and whether it's done.
+        - Scheduler is the "brain." It looks at the owner's tasks and time limit, then decides what goes into the day.
+        - DailyPlan is the result. It lists what got scheduled, what got skipped, and why.
+
+    An Owner has Pets, and a Pet has Tasks. The Scheduler uses the Owner and creates a DailyPlan. I kept the planning logic in the Scheduler, so the other classes only hold data. That keeps the design simple and easy to test.
+
 
 **b. Design changes**
 
