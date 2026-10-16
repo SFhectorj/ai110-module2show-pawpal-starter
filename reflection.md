@@ -50,10 +50,37 @@ Third, generate and view a daily plan.
 - How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
 - What kinds of prompts or questions were most helpful?
 
+I used Claude Code in small, specific steps instead of one big request: first class skeletons from my UML, then filling in the core logic, then a demo script (`main.py`), then two tests, then docstrings, then the README. The most helpful prompts named exact requirements. For example, I told it that `Owner` needs one method returning every pet's tasks (`get_all_tasks`) and that `Scheduler` must read from that method, not from a single pet. That kept the AI from taking the shortcut of scheduling for one pet. Small, scoped requests were also easy to check one at a time.
+
+**What the AI suggested**
+
+- It filled in the skeleton methods: validation in `Task`, duplicate-id rejection in `Pet.add_task`, and `Owner.get_all_tasks()` flattening all pets' tasks.
+- It built `Scheduler.generate_plan()` as a greedy planner. It sorts pending tasks by priority, then preferred time, then shortest duration, and fills the owner's available minutes in that order.
+- It added `description` and `frequency` fields to `Task`, because my task list called for them and the skeleton lacked them.
+- It added an optional `scheduled` flag to `DailyPlan.add_entry` so the same method can record skipped tasks.
+- It pointed out a flaw in its own design. Task ids are only unique within one pet, but `DailyPlan.explanations` is keyed by task id, so two pets with the same id would overwrite each other's explanations.
+
+**What I accepted or rejected**
+
+- I accepted the greedy, priority-first approach because it is simple, predictable and easy to explain to a pet owner. The cost is that it can skip a long high-value task while squeezing in shorter, lower-priority ones.
+- I accepted the extra `Task` fields and the `add_entry` change because they came straight from the requirements.
+- I did not accept the id-collision issue as fine. I recorded it as a known limitation in the README instead of leaving it hidden. I have not fixed it yet. The fix would be globally unique ids, or keying explanations by the task object.
+- I held the AI to the scope I asked for. `app.py` is still not connected to the classes, and the tests cover only two behaviors, because those were the steps I requested.
+
 **b. Judgment and verification**
 
 - Describe one moment where you did not accept an AI suggestion as-is.
 - How did you evaluate or verify what the AI suggested?
+
+The clearest moment was the id-collision problem. The AI's code worked for my demo, where task ids are 1 to 5 across both pets, so it would have been easy to move on. I treated the AI's own warning as a real design bug and documented it instead of assuming the demo proved the design correct.
+
+To verify the AI's work, I did not rely on its description. I ran things:
+
+- I ran `python3 main.py` and checked that the schedule had all five tasks in time order, with a 90-minute total matching the 90 minutes available. The earlier two-pet check also showed the 40-minute grooming task being skipped once the time ran out, with the reason stated.
+- I ran `pytest`. The two tests check that `mark_complete()` flips `is_completed` and that `add_task` increases a pet's task count. Both pass.
+- After the docstring pass I re-ran the tests and the demo to confirm nothing about the behavior had changed.
+
+These checks show the basic behavior works. They do not cover edge cases such as ties in priority, zero available minutes or tasks with no preferred time.
 
 ---
 
