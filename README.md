@@ -89,18 +89,33 @@ Total scheduled: 90 min
 ## 🧪 Testing PawPal+
 
 ```bash
-# Run the full test suite:
-pytest
-
-# Run with coverage:
-pytest --cov
+python -m pytest
 ```
+
+The suite (`tests/test_pawpal.py`, 44 tests) covers:
+
+- **Sorting:** chronological order, untimed tasks last, stable ties, empty input, input not mutated.
+- **Recurrence:** daily (+1 day) and weekly (+7 days) follow-ups, one-off tasks, year-end and leap-year rollover, unique ids across pets, unknown ids.
+- **Conflict detection:** same-time clashes within one pet and across pets, three-way clashes, and ignored cases (completed, untimed, different dates).
+- **Plan generation:** priority order, exact-fit boundary, skipped tasks with reasons, never exceeding available time, overdue and future tasks.
+- **Edge cases and validation:** pets with no tasks, owners with no pets, zero availability, invalid priority/frequency, duplicate ids.
+- **Known limitations (documented as tests):** unpadded times sort as strings, overlapping durations with different start times are not flagged, completing a recurring task twice creates two follow-ups, a failed `Task.update` leaves the bad value in place, and task ids may repeat across pets.
 
 Sample test output:
 
 ```
-# Paste your pytest output here
+============================= test session starts ==============================
+platform darwin -- Python 3.13.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /Users/beck/Developer/ai110-module2show-pawpal-starter
+plugins: anyio-4.14.1
+collected 44 items
+
+tests/test_pawpal.py ............................................        [100%]
+
+============================== 44 passed in 0.02s ==============================
 ```
+
+**Confidence Level: ★★★★☆ (4/5)** — All 44 tests pass, and the core behaviors (sorting, recurrence, conflict detection, planning) are verified including edge cases. One star is held back because five known limitations are documented rather than fixed.
 
 ## 📐 Smarter Scheduling
 
