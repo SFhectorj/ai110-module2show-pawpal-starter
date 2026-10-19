@@ -104,14 +104,49 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+All of these live on `Scheduler` in `pawpal_system.py` (except where noted) and are exercised in `main.py` and `tests/test_pawpal.py`.
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Plan ordering | `Scheduler.sort_tasks()` | Priority first, then preferred time, then shortest duration |
+| Sorting by time | `Scheduler.sort_by_time()` | Chronological; tasks with no time go last |
+| Filtering | `Scheduler.filter_tasks()` | By completion status and/or pet name |
+| Conflict detection | `Scheduler.find_conflicts()` | Warns when pending tasks share a day and exact start time |
+| Recurring tasks | `Task.next_occurrence()`, `Scheduler.complete_task()` | Completing a daily/weekly task creates the next one |
+
+### Sorting
+
+- `sort_by_time(tasks)` returns a new list ordered by `preferred_time`. It uses `sorted()` with a lambda key that returns a tuple, `(preferred_time == "", preferred_time)`. Tuples compare element by element and `False < True`, so untimed tasks sort after every timed one.
+- `"HH:MM"` strings compare correctly as text only when they are zero-padded (`"07:30"`, not `"7:30"`).
+- `sort_tasks()` is a separate ordering used by `generate_plan()` to decide what gets scheduled first when time is limited.
+
+### Filtering
+
+`filter_tasks(completed=None, pet_name=None)` returns matching tasks across all of the owner's pets.
+
+- `completed=True` returns finished tasks and `completed=False` returns unfinished ones.
+- `pet_name` matches case-insensitively, so `"rex"` finds Rex.
+- A filter left as `None` is not applied. Both filters combine with AND, and with neither set every task is returned.
+- The result is not sorted, so wrap it in `sort_by_time()` if you want it ordered.
+
+### Conflict detection
+
+`find_conflicts()` returns a list of warning strings and never raises, so the plan is still generated.
+
+- Pending tasks are grouped by `(due_date, preferred_time)`, and every pair inside a group is reported. It checks within one pet and across pets, with a different message for each.
+- Completed tasks, untimed tasks and tasks on different days are ignored.
+- Example: `Conflict across Rex and Mia at 07:30 on 2026-10-18: 'Morning walk' and 'Flea treatment'`.
+- **Limitation:** it matches exact start times only. A 30-minute task at 07:30 and another at 07:45 overlap but are not flagged. See the tradeoff in `reflection.md`.
+- `generate_plan()` does not act on conflicts; call `find_conflicts()` alongside it to surface them.
+
+### Recurring tasks
+
+- `Task.due_date` (default: today) records when an occurrence is due.
+- `Task.next_occurrence(new_id)` returns a not-completed copy due one period later: 1 day for `"daily"`, 7 days for `"weekly"`. It returns `None` for `"once"`.
+- `Scheduler.complete_task(task_id)` marks the task complete and, if it recurs, adds the next occurrence to the same pet. The new task's id is one more than the largest id across all pets. It returns the new task, `None` for one-off tasks, and raises `KeyError` for an unknown id.
+- The next due date is the old `due_date` plus the period, not today plus the period, so a late completion does not shift the schedule.
+- `generate_plan()` skips tasks whose `due_date` is after today, so tomorrow's copy does not appear in today's plan.
+- Calling `task.mark_complete()` directly does not create a follow-up, because a task does not know which pet owns it. Use `scheduler.complete_task()`.
 
 ## 📸 Demo Walkthrough
 

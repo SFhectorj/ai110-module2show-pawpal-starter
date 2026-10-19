@@ -41,6 +41,20 @@ Third, generate and view a daily plan.
 - Describe one tradeoff your scheduler makes.
 - Why is that tradeoff reasonable for this scenario?
 
+**Tradeoff: conflict detection checks exact start times, not overlapping durations.**
+
+`Scheduler.find_conflicts()` groups pending tasks by `(due_date, preferred_time)` and warns when two or more share a slot. It does not compare durations, so a 30-minute walk at 07:30 and a feeding at 07:45 are not flagged, even though they overlap. A true overlap check would parse each `"HH:MM"` string into minutes, compute start and end times, sort by start, and compare neighbours.
+
+I kept the exact-match version because:
+
+- **Preferred times are wishes, not bookings.** The scheduler fills the owner's available minutes by priority. It does not build a timeline, so there is no real "end time" for an overlap to run into.
+- **The data supports it.** Times are plain `"HH:MM"` strings with no validation. An overlap check built on them would fail on input like `"7:30"`, so it would need time parsing and validation first.
+- **It is easy to explain.** The warning says "two tasks both want 17:00", and the owner can fix it at a glance. It never blocks the plan, so a false negative costs little.
+
+The cost is missed overlaps. If PawPal+ grows into a real timeline, this is the first thing to upgrade.
+
+**Reviewing the code for readability.** I asked for a simpler or faster version of `find_conflicts`. The one change I kept was swapping `slots.setdefault(key, []).append(...)` for a `defaultdict(list)`, which reads more directly and does the same work. I rejected a fully compressed version that built the whole warning list in one nested comprehension. It was shorter but harder to follow, because the same-pet versus cross-pet message logic ended up inside the comprehension. Performance was not a reason to change anything. The method is already linear in the number of tasks plus the number of conflicting pairs.
+
 ---
 
 ## 3. AI Collaboration

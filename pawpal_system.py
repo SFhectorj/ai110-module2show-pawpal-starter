@@ -1,10 +1,13 @@
 """PawPal+ logic layer: backend classes for owners, pets, tasks, and scheduling."""
 
-from dataclasses import dataclass, field
-from datetime import date
+from collections import defaultdict
+from dataclasses import dataclass, field, replace
+from datetime import date, timedelta
+from itertools import combinations
 
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 VALID_FREQUENCIES = {"once", "daily", "weekly"}
+RECURRENCE_DAYS = {"daily": 1, "weekly": 7}
 
 
 @dataclass
@@ -18,6 +21,7 @@ class Task:
     description: str = ""
     frequency: str = "daily"
     is_completed: bool = False
+    due_date: date = field(default_factory=date.today)
 
     def __post_init__(self) -> None:
         """Validate that priority and frequency hold allowed values."""
@@ -29,6 +33,23 @@ class Task:
     def mark_complete(self) -> None:
         """Mark this task as completed."""
         self.is_completed = True
+
+    def next_occurrence(self, new_id: int) -> "Task | None":
+        """Build the next occurrence of a recurring task.
+
+        Args:
+            new_id: Id to give the new task (the caller must ensure it is unused).
+
+        Returns:
+            A copy of this task, not completed, due one period after this task's
+            due_date (1 day for "daily", 7 for "weekly"). Returns None when the
+            frequency is "once", since a one-off task does not recur.
+        """
+        days = RECURRENCE_DAYS.get(self.frequency)
+        if days is None:
+            return None
+        return replace(self, id=new_id, is_completed=False,
+                       due_date=self.due_date + timedelta(days=days))
 
     def update(self, changes: dict) -> None:
         """Apply field changes from a dict and re-validate the task."""
@@ -128,9 +149,22 @@ class Scheduler:
     owner: Owner
 
     def generate_plan(self) -> DailyPlan:
-        """Build a plan from all pending tasks across every pet."""
+        """Build today's plan with a greedy, priority-first fill.
+
+        Considers tasks that are not completed and are due today or earlier
+        (future occurrences of recurring tasks are left out). Tasks are taken
+        in sort_tasks order and scheduled while they fit in the owner's
+        remaining minutes; a task that does not fit is skipped with a reason,
+        but smaller later tasks can still be scheduled. This is not optimal:
+        it can skip a long high-priority task in favour of shorter ones.
+
+        Returns:
+            A DailyPlan with scheduled and skipped tasks and an explanation for each.
+        """
         plan = DailyPlan(date=date.today())
-        pending = [t for t in self.owner.get_all_tasks() if not t.is_completed]
+        today = plan.date
+        pending = [t for t in self.owner.get_all_tasks()
+                   if not t.is_completed and t.due_date <= today]
         remaining = self.owner.available_minutes
         for task in self.sort_tasks(pending):
             if task.duration_minutes <= remaining:
@@ -151,6 +185,93 @@ class Scheduler:
                 t.duration_minutes,
             ),
         )
+
+    def complete_task(self, task_id: int) -> Task | None:
+        """Mark a task complete and, if it recurs, schedule its next occurrence.
+
+        The next occurrence is added to the same pet and gets an id one higher
+        than the largest id across all of the owner's pets, so ids stay unique.
+
+        Args:
+            task_id: Id of the task to complete.
+
+        Returns:
+            The newly created task, or None if the task does not recur.
+
+        Raises:
+            KeyError: If no pet has a task with this id.
+        """
+        for pet in self.owner.pets:
+            for task in pet.tasks:
+                if task.id == task_id:
+                    task.mark_complete()
+                    new_id = max(t.id for t in self.owner.get_all_tasks()) + 1
+                    following = task.next_occurrence(new_id)
+                    if following is not None:
+                        pet.add_task(following)
+                    return following
+        raise KeyError(f"No task with id {task_id}")
+
+    def find_conflicts(self) -> list[str]:
+        """Detect pending tasks booked for the same moment.
+
+        Pending tasks are bucketed by (due_date, preferred_time), then every
+        pair inside a bucket is reported, so one pass over the tasks plus the
+        number of clashing pairs bounds the work. Matching is on exact start
+        time only; differing start times with overlapping durations are not
+        detected. Tasks that are completed or have no preferred time are skipped.
+
+        Returns:
+            One human-readable warning per clashing pair, saying whether it is
+            within one pet or across two, or an empty list if there are none.
+        """
+        slots: defaultdict[tuple[date, str], list[tuple[str, Task]]] = defaultdict(list)
+        for pet in self.owner.pets:
+            for task in pet.get_pending_tasks():
+                if task.preferred_time:
+                    slots[task.due_date, task.preferred_time].append((pet.name, task))
+
+        warnings = []
+        for (day, time), entries in slots.items():
+            for (pet_a, a), (pet_b, b) in combinations(entries, 2):
+                scope = f"for {pet_a}" if pet_a == pet_b else f"across {pet_a} and {pet_b}"
+                warnings.append(f"Conflict {scope} at {time} on {day.isoformat()}: "
+                                f"'{a.title}' and '{b.title}'")
+        return warnings
+
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Order tasks chronologically by preferred time.
+
+        The sort key is a tuple, so tasks with no time (``""``) sort after every
+        timed task. Times are compared as strings, which is correct only for
+        zero-padded "HH:MM" values. The sort is stable, so ties keep input order.
+
+        Returns:
+            A new sorted list; the input list is not modified.
+        """
+        return sorted(tasks, key=lambda t: (t.preferred_time == "", t.preferred_time))
+
+    def filter_tasks(self, completed: bool | None = None,
+                     pet_name: str | None = None) -> list[Task]:
+        """Select tasks by completion status and/or pet name.
+
+        Args:
+            completed: True for finished tasks, False for unfinished ones,
+                None to ignore completion status.
+            pet_name: Only tasks for the pet with this name (case-insensitive),
+                or None to include every pet.
+
+        Returns:
+            Matching tasks in pet order, then insertion order. Both filters
+            are combined with AND; with neither set, all tasks are returned.
+        """
+        return [
+            task
+            for pet in self.owner.pets
+            if pet_name is None or pet.name.lower() == pet_name.lower()
+            for task in pet.tasks
+            if completed is None or task.is_completed == completed
+        ]
 
     def fits_in_time(self, tasks: list[Task]) -> bool:
         """Return True if the tasks' total duration fits the owner's availability."""
