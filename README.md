@@ -24,7 +24,7 @@ Your final app should:
 
 ## Implementation summary
 
-The logic layer lives in `pawpal_system.py`. `main.py` is a terminal demo that builds an owner with two pets and prints today's schedule. The Streamlit UI in `app.py` is not yet connected to these classes.
+The logic layer lives in `pawpal_system.py`. `main.py` is a terminal demo that builds an owner with two pets and prints today's schedule. The Streamlit UI in `app.py` uses the same classes, so the app and the terminal demo share one scheduling engine.
 
 ### How the classes work together
 
@@ -50,6 +50,19 @@ Owner ──has many──▶ Pet ──has many──▶ Task
 
 Task ids are only unique within a pet. `DailyPlan.explanations` is keyed by task id, so two pets with the same task id would overwrite each other's explanations.
 
+## ✨ Features
+
+- **Multi-pet task tracking:** one owner, any number of pets, each with its own tasks (title, category, duration, priority, preferred time, frequency).
+- **Priority-based daily plan:** `generate_plan()` sorts pending tasks by priority (high → low), then preferred time, then shortest duration, and greedily fills the owner's available minutes.
+- **Skipped-task explanations:** tasks that don't fit are listed with a reason (e.g. "needs 15 min but only 10 left"). Every scheduled task also gets a reason.
+- **Sorting by time:** `sort_by_time()` orders tasks chronologically by `HH:MM`, with untimed tasks last. The original list is not modified.
+- **Filtering:** `filter_tasks()` narrows tasks by completion status and/or pet name (case-insensitive); both filters combine with AND.
+- **Conflict warnings:** `find_conflicts()` flags pending tasks that share a date and exact start time, both within one pet and across pets. It returns warnings and never blocks plan generation.
+- **Daily and weekly recurrence:** completing a recurring task with `complete_task()` creates the next occurrence (+1 day or +7 days from its due date). One-off tasks don't recur.
+- **Due-date awareness:** tasks due in the future are left out of today's plan; overdue tasks are still scheduled.
+- **Input validation:** invalid priority/frequency, duplicate task ids within a pet, and negative availability raise clear errors.
+- **Streamlit UI:** add pets and tasks, filter and sort the task table, see conflict warnings, mark tasks done, and generate the schedule.
+
 ## Getting started
 
 ### Setup
@@ -69,22 +82,6 @@ pip install -r requirements.txt
 5. Add tests to verify key behaviors.
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
-
-## 🖥️ Sample Output
-
-```
-==================================================
-Today's Schedule for Jordan (2026-10-15)
-Time available: 90 min | Pets: Rex, Mia
-==================================================
-07:30  Morning walk           Rex    30 min  [high]
-08:00  Breakfast              Mia    10 min  [high]
-17:00  Training session       Rex    20 min  [medium]
-19:00  Brush fur              Mia    25 min  [low]
-21:00  Vet-prescribed meds    Mia     5 min  [high]
---------------------------------------------------
-Total scheduled: 90 min
-```
 
 ## 🧪 Testing PawPal+
 
@@ -165,12 +162,104 @@ All of these live on `Scheduler` in `pawpal_system.py` (except where noted) and 
 
 ## 📸 Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+### Running it
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+```bash
+streamlit run app.py   # web UI
+python main.py         # terminal demo
+```
+
+### Main UI features (`app.py`)
+
+| Section | What the user can do |
+|---------|----------------------|
+| **Owner** | Set the owner name and the minutes available today. |
+| **Pets** | Add a pet (name, species, age, optional special needs) and see all pets with their task counts. |
+| **Tasks** | Add a task to a pet: title, category, frequency (daily/weekly/once), duration, priority, and optional preferred time (`HH:MM`). |
+| **Task table** | Filter by pet and status (pending/completed), sort by time of day or priority, and see conflict warnings above the table. |
+| **Mark a task done** | Complete a pending task; a daily/weekly task automatically gets its next occurrence. |
+| **Build Schedule** | Generate today's plan: scheduled tasks in time order with reasons, a minutes-used progress bar, and any skipped tasks. |
+
+### Example workflow
+
+1. **Set up the owner:** enter a name and, say, 90 minutes available today.
+2. **Add a pet:** add "Rex" (dog, 4). Add a second pet, "Mia" (cat, 2), if you like.
+3. **Schedule tasks:** add "Morning walk" (30 min, high, 07:30, daily) to Rex and "Brush fur" (25 min, low, 19:00, weekly) to Mia.
+4. **Trigger a conflict:** add "Flea treatment" to Mia at 07:30. A warning appears naming both tasks and suggesting you change one time.
+5. **Review the task list:** sort by time of day (untimed tasks go last) or filter to just Rex's pending tasks.
+6. **Generate the schedule:** click "Generate schedule" to see today's plan, the minutes used, and a reason for each task. Anything that exceeds your available time is listed as skipped.
+7. **Complete a task:** mark "Morning walk" done. A new one is created for tomorrow and stays out of today's plan.
+
+### Scheduler behaviors on display
+
+- **Priority-first planning:** high-priority tasks are placed before low-priority ones when time is tight.
+- **Sorting by time:** the final schedule and the sorted task list are chronological, with untimed tasks last.
+- **Filtering:** by pet, completion status, or both.
+- **Conflict warnings:** same-time tasks are reported, within one pet and across pets, without stopping the plan.
+- **Skipped tasks with reasons:** below, "Fetch in the yard" is skipped because only 10 of its 15 minutes remain.
+- **Recurrence:** completing a daily/weekly task adds the next occurrence, due one period after the old due date.
+
+### Sample CLI output (`python main.py`)
+
+`main.py` builds an owner (Jordan, 90 min) with two pets, adds tasks deliberately out of order, then prints the plan, the sorting and filtering results, and a conflict check before and after two clashing tasks are added.
+
+```
+==================================================
+Today's Schedule for Jordan (2026-10-18)
+Time available: 90 min | Pets: Rex, Mia
+==================================================
+[ ] 07:30  Morning walk           Rex    30 min  [high]
+[ ] 17:00  Training session       Rex    20 min  [medium]
+[ ] 19:00  Brush fur              Mia    25 min  [low]
+[ ] 21:00  Vet-prescribed meds    Mia     5 min  [high]
+
+Skipped:
+  Fetch in the yard (Rex): needs 15 min but only 10 left
+--------------------------------------------------
+Total scheduled: 80 min
+
+All tasks as added (unsorted):
+[ ] 17:00  Training session       Rex    20 min  [medium]
+[ ] --:--  Fetch in the yard      Rex    15 min  [low]
+[ ] 07:30  Morning walk           Rex    30 min  [high]
+[ ] 21:00  Vet-prescribed meds    Mia     5 min  [high]
+[ ] 19:00  Brush fur              Mia    25 min  [low]
+[x] 08:00  Breakfast              Mia    10 min  [high]
+
+All tasks via sort_by_time:
+[ ] 07:30  Morning walk           Rex    30 min  [high]
+[x] 08:00  Breakfast              Mia    10 min  [high]
+[ ] 17:00  Training session       Rex    20 min  [medium]
+[ ] 19:00  Brush fur              Mia    25 min  [low]
+[ ] 21:00  Vet-prescribed meds    Mia     5 min  [high]
+[ ] --:--  Fetch in the yard      Rex    15 min  [low]
+
+filter_tasks(completed=True):
+[x] 08:00  Breakfast              Mia    10 min  [high]
+
+filter_tasks(completed=False):
+[ ] 17:00  Training session       Rex    20 min  [medium]
+[ ] --:--  Fetch in the yard      Rex    15 min  [low]
+[ ] 07:30  Morning walk           Rex    30 min  [high]
+[ ] 21:00  Vet-prescribed meds    Mia     5 min  [high]
+[ ] 19:00  Brush fur              Mia    25 min  [low]
+
+filter_tasks(pet_name='rex'), sorted by time:
+[ ] 07:30  Morning walk           Rex    30 min  [high]
+[ ] 17:00  Training session       Rex    20 min  [medium]
+[ ] --:--  Fetch in the yard      Rex    15 min  [low]
+
+filter_tasks(completed=False, pet_name='Mia'):
+[ ] 21:00  Vet-prescribed meds    Mia     5 min  [high]
+[ ] 19:00  Brush fur              Mia    25 min  [low]
+
+Conflict check (before adding clashing tasks):
+  none
+
+Conflict check (after adding two clashing tasks):
+  WARNING: Conflict for Rex at 17:00 on 2026-10-18: 'Training session' and 'Teeth brushing'
+  WARNING: Conflict across Rex and Mia at 07:30 on 2026-10-18: 'Morning walk' and 'Flea treatment'
+  OK: both conflicts detected as expected.
+```
 
 **Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->

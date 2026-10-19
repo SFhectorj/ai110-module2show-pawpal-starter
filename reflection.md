@@ -96,19 +96,49 @@ To verify the AI's work, I did not rely on its description. I ran things:
 
 These checks show the basic behavior works. They do not cover edge cases such as ties in priority, zero available minutes or tasks with no preferred time.
 
+**c. AI strategy**
+
+**Which Claude Code features were most effective?**
+
+- **Reading the real files before changing them.** When I asked for a README update or a new feature, Claude Code opened `pawpal_system.py`, `main.py` and `app.py` first. It then described what the code does, not what the starter template assumed. It caught that the README still said `app.py` wasn't connected and that its sample output no longer matched `main.py`.
+- **Running the code.** It ran `main.py` and `pytest` and pasted real output into the docs, so the Demo Walkthrough shows what the program actually prints.
+- **Scoped, multi-step edits.** Asking for one feature at a time (sorting, then filtering, then conflict detection, then recurrence) produced a small diff I could read and test before moving on.
+- **Test generation.** It was good at proposing edge cases I hadn't thought of, such as year-end and leap-year rollover for recurring tasks and untimed tasks in sorting. It also helped me document behaviors that are limitations instead of hiding them.
+
+**An AI suggestion I rejected or modified**
+
+When I asked for a simpler version of `find_conflicts()`, the AI offered one nested comprehension that built the whole warning list. I rejected it. It was shorter, but the same-pet versus cross-pet message logic ended up buried inside the comprehension, so it was harder to read and debug. I kept only the `defaultdict(list)` change. The id-collision issue is a second example. I did not accept "it works in the demo" as good enough, and I recorded it as a known limitation instead.
+
+**How separate chat sessions helped**
+
+I split the work by phase: UML and class design, then core logic, then algorithms (sorting, filtering, conflicts, recurrence), then tests, then docs. Each phase started with a clean context and a narrow goal. That kept the AI from mixing concerns, for example redesigning classes while I was only asking for tests. It also made each session's output easy to review, because the commit history follows the same phases. When a later session needed earlier decisions, I pointed it at the files (`pawpal_system.py`, `uml.mmd`) instead of relying on a long chat history.
+
+**What I learned about being the lead architect**
+
+- The AI is fast at producing code, but it doesn't know what the system is for. I decide the boundaries, such as the Scheduler owning the planning logic and the other classes holding data, and the AI works inside them.
+- Specific requirements get better results than open requests. Naming the exact method (`get_all_tasks`) prevented a shortcut that would have scheduled only one pet.
+- Every suggestion is a tradeoff someone has to own. The greedy planner, exact-time conflict matching and string-based times are simple on purpose, and I can explain why. If I can't explain a choice, I shouldn't keep it.
+- Passing tests only show what was tested. I read the diffs and ran the code, and I wrote the known limitations down.
+
 ---
 
 ## 4. Testing and Verification
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+I tested sorting by time, recurring tasks, conflict detection, and plan generation. I also tested edge cases like a pet with no tasks, zero available minutes, and bad priority values.
+
+These tests were important because the scheduler is the main part of the app. If sorting or conflicts are wrong, the plan is wrong. The tests also let me change code without worrying that I broke something.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+I'm pretty confident, about 4 out of 5. All 44 tests pass. I'm not at 5 because I know about some problems I haven't fixed. For example, overlapping tasks with different start times aren't flagged, and task ids can repeat across pets.
+
+If I had more time, I would test:
+- Overlapping durations (like 07:30 for 30 min and 07:45)
+- Times typed the wrong way, like "7:30"
+- Completing the same recurring task twice
+- Two pets with the same task id
 
 ---
 
@@ -116,12 +146,16 @@ These checks show the basic behavior works. They do not cover edge cases such as
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+I'm most happy with the scheduler and the tests. The scheduler can sort tasks, filter them, warn about conflicts, and make the next task when a daily or weekly one is done. The 44 tests all pass, so I trust it. I'm also happy that the Streamlit app and `main.py` use the same classes.
 
 **b. What you would improve**
 
-- If you had another iteration, what would you improve or redesign?
+If I had more time, I would:
+- Fix the task id problem by making ids unique across all pets.
+- Check for real overlaps using task durations, not just the same start time.
+- Check that times are typed like "07:30" before saving them.
+- Make `complete_task` safe so finishing the same task twice doesn't make two copies.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+The AI can write code fast, but I still have to make the design choices. I learned to ask for small steps, read what it wrote, and run the code to check it. Passing tests only prove what I tested, so I also wrote down the problems I knew about.

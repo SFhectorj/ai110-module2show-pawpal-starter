@@ -4,38 +4,7 @@ from pawpal_system import Owner, Pet, Scheduler, Task
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
 st.title("🐾 PawPal+")
-
-st.markdown(
-    """
-Welcome to the PawPal+ starter app.
-
-This file is intentionally thin. It gives you a working Streamlit app so you can start quickly,
-but **it does not implement the project logic**. Your job is to design the system and build it.
-
-Use this app as your interactive demo once your backend classes/functions exist.
-"""
-)
-
-with st.expander("Scenario", expanded=True):
-    st.markdown(
-        """
-**PawPal+** is a pet care planning assistant. It helps a pet owner plan care tasks
-for their pet(s) based on constraints like time, priority, and preferences.
-
-You will design and implement the scheduling logic and connect it to this Streamlit UI.
-"""
-    )
-
-with st.expander("What you need to build", expanded=True):
-    st.markdown(
-        """
-At minimum, your system should:
-- Represent pet care tasks (what needs to happen, how long it takes, priority)
-- Represent the pet and the owner (basic info and preferences)
-- Build a plan/schedule for a day that chooses and orders tasks based on constraints
-- Explain the plan (why each task was chosen and when it happens)
-"""
-    )
+st.caption("A pet care planner: add pets and tasks, spot clashes, and build today's schedule.")
 
 st.divider()
 
@@ -43,10 +12,51 @@ st.subheader("Owner")
 
 if "owner" not in st.session_state:
     st.session_state.owner = Owner(name="Jordan", available_minutes=120)
-if "next_task_id" not in st.session_state:
-    st.session_state.next_task_id = 1
 
 owner = st.session_state.owner
+scheduler = Scheduler(owner)
+
+
+def next_task_id() -> int:
+    """Next unused id; derived from existing tasks so recurring copies never collide."""
+    return max((t.id for t in owner.get_all_tasks()), default=0) + 1
+
+
+PRIORITY_BADGE = {"high": "🔴 high", "medium": "🟡 medium", "low": "🟢 low"}
+
+
+def task_rows(tasks: list[Task]) -> list[dict]:
+    """Display rows for a list of tasks."""
+    pet_of = {t.id: p.name for p in owner.pets for t in p.tasks}
+    return [
+        {
+            "Time": t.preferred_time or "—",
+            "Pet": pet_of.get(t.id, "?"),
+            "Task": t.title,
+            "Minutes": t.duration_minutes,
+            "Priority": PRIORITY_BADGE[t.priority],
+            "Repeats": t.frequency,
+            "Due": t.due_date.isoformat(),
+            "Status": "✅ done" if t.is_completed else "⏳ pending",
+        }
+        for t in tasks
+    ]
+
+
+def show_conflicts() -> None:
+    """Warn about tasks booked at the same time, with a concrete way to fix it."""
+    conflicts = scheduler.find_conflicts()
+    if not conflicts:
+        return
+    st.warning(
+        f"**⚠️ {len(conflicts)} scheduling conflict{'s' if len(conflicts) > 1 else ''} found.** "
+        "You can't be in two places at once, so these tasks can't both happen at their "
+        "preferred time."
+    )
+    for message in conflicts:
+        st.warning(message, icon="🕒")
+    st.caption("💡 To fix: change one task's preferred time, or leave it blank to let PawPal+ place it.")
+
 
 col1, col2 = st.columns(2)
 with col1:
@@ -107,7 +117,7 @@ else:
             try:
                 pet.add_task(
                     Task(
-                        id=st.session_state.next_task_id,
+                        id=next_task_id(),
                         title=task_title,
                         category=category,
                         duration_minutes=int(duration),
@@ -116,26 +126,49 @@ else:
                         frequency=frequency,
                     )
                 )
-                st.session_state.next_task_id += 1
                 st.success(f"Added '{task_title}' to {pet.name}.")
             except ValueError as e:
                 st.error(str(e))
 
-all_rows = [
-    {
-        "pet": p.name,
-        "title": t.title,
-        "duration_minutes": t.duration_minutes,
-        "priority": t.priority,
-        "preferred_time": t.preferred_time,
-        "done": t.is_completed,
-    }
-    for p in owner.pets
-    for t in p.tasks
-]
-if all_rows:
-    st.write("Current tasks:")
-    st.table(all_rows)
+if "flash" in st.session_state:
+    st.success(st.session_state.pop("flash"))
+
+if owner.get_all_tasks():
+    show_conflicts()
+
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        pet_filter = st.selectbox("Pet", ["All pets"] + [p.name for p in owner.pets])
+    with f2:
+        status_filter = st.selectbox("Status", ["All", "Pending", "Completed"])
+    with f3:
+        sort_choice = st.selectbox("Sort by", ["Time of day", "Priority"])
+
+    shown = scheduler.filter_tasks(
+        completed={"All": None, "Pending": False, "Completed": True}[status_filter],
+        pet_name=None if pet_filter == "All pets" else pet_filter,
+    )
+    shown = scheduler.sort_by_time(shown) if sort_choice == "Time of day" else scheduler.sort_tasks(shown)
+
+    if shown:
+        st.table(task_rows(shown))
+    else:
+        st.info("No tasks match these filters.")
+
+    pending = scheduler.filter_tasks(completed=False)
+    if pending:
+        with st.form("complete_task_form"):
+            labels = {f"{r['Pet']}: {r['Task']} (due {r['Due']})": t.id
+                      for r, t in zip(task_rows(pending), pending)}
+            choice = st.selectbox("Mark a task done", list(labels))
+            if st.form_submit_button("Complete task"):
+                following = scheduler.complete_task(labels[choice])
+                st.session_state.flash = (
+                    f"Done! Next {following.frequency} occurrence added for "
+                    f"{following.due_date.isoformat()}."
+                    if following else "Done! This was a one-off task."
+                )
+                st.rerun()
 else:
     st.info("No tasks yet.")
 
@@ -144,13 +177,36 @@ st.divider()
 st.subheader("Build Schedule")
 
 if st.button("Generate schedule"):
-    plan = Scheduler(owner).generate_plan()
-    st.success(f"{plan.get_total_minutes()} of {owner.available_minutes} minutes scheduled.")
-    pet_of = {t.id: p.name for p in owner.pets for t in p.tasks}
-    st.markdown("**Scheduled**")
-    for t in plan.scheduled_tasks:
-        st.write(f"- {t.title} ({pet_of.get(t.id, '?')}, {t.duration_minutes} min): {plan.explanations[t.id]}")
-    if plan.skipped_tasks:
-        st.markdown("**Skipped**")
-        for t in plan.skipped_tasks:
-            st.write(f"- {t.title} ({pet_of.get(t.id, '?')}): {plan.explanations[t.id]}")
+    show_conflicts()
+    plan = scheduler.generate_plan()
+    if not plan.scheduled_tasks and not plan.skipped_tasks:
+        st.info("Nothing due today. Add a task or enjoy the day off!")
+    else:
+        total, budget = plan.get_total_minutes(), owner.available_minutes
+        st.success(f"{total} of {budget} minutes scheduled ({len(plan.scheduled_tasks)} tasks).")
+        st.progress(min(total / budget, 1.0) if budget else 0.0)
+
+        pet_of = {t.id: p.name for p in owner.pets for t in p.tasks}
+
+        def plan_rows(tasks: list[Task]) -> list[dict]:
+            return [
+                {
+                    "Time": t.preferred_time or "—",
+                    "Pet": pet_of.get(t.id, "?"),
+                    "Task": t.title,
+                    "Minutes": t.duration_minutes,
+                    "Priority": PRIORITY_BADGE[t.priority],
+                    "Why": plan.explanations[t.id],
+                }
+                for t in tasks
+            ]
+
+        if plan.scheduled_tasks:
+            st.markdown("**✅ Scheduled**")
+            st.table(plan_rows(scheduler.sort_by_time(plan.scheduled_tasks)))
+        if plan.skipped_tasks:
+            st.warning(
+                f"{len(plan.skipped_tasks)} task(s) didn't fit in your available time. "
+                "Increase your minutes or shorten/reschedule these."
+            )
+            st.table(plan_rows(plan.skipped_tasks))

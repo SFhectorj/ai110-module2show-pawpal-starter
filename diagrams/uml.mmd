@@ -29,8 +29,12 @@ classDiagram
         +int duration_minutes
         +str priority
         +str preferred_time
+        +str description
+        +str frequency
         +bool is_completed
+        +date due_date
         +mark_complete() None
+        +next_occurrence(new_id) Task
         +update(changes) None
     }
 
@@ -38,6 +42,10 @@ classDiagram
         +Owner owner
         +generate_plan() DailyPlan
         +sort_tasks(tasks) list~Task~
+        +sort_by_time(tasks) list~Task~
+        +filter_tasks(completed, pet_name) list~Task~
+        +complete_task(task_id) Task
+        +find_conflicts() list~str~
         +fits_in_time(tasks) bool
         +explain_plan(plan) list~str~
     }
@@ -47,13 +55,17 @@ classDiagram
         +list~Task~ scheduled_tasks
         +list~Task~ skipped_tasks
         +dict explanations
-        +add_entry(task, reason) None
+        +add_entry(task, reason, scheduled) None
         +get_total_minutes() int
         +get_summary() str
     }
 
-    Owner "1" --> "0..*" Pet : has
-    Pet "1" --> "0..*" Task : has
-    Scheduler --> Owner : uses
+    Owner "1" *-- "0..*" Pet : owns
+    Pet "1" *-- "0..*" Task : has
+    Scheduler "1" --> "1" Owner : schedules for
+    Scheduler ..> Pet : adds recurring task to
     Scheduler ..> DailyPlan : creates
-    DailyPlan o-- Task : contains
+    Scheduler ..> Task : sorts, filters, completes
+    Task ..> Task : next_occurrence creates copy
+    DailyPlan o-- "0..*" Task : scheduled_tasks
+    DailyPlan o-- "0..*" Task : skipped_tasks
